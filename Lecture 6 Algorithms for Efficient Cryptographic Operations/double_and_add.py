@@ -1,6 +1,4 @@
-import binascii
 from cryptography.hazmat.primitives.asymmetric import ec
-import hashlib
 from typing import Optional, List, Tuple
 
 def binary_expansion(number: int, base: int) -> List[int] :

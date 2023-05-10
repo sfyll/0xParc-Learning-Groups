@@ -1,5 +1,4 @@
 import random
-from typing import List
 
 def test_exercise_one_answer() -> None:
     m: int = 2 #every integer is a quadratic residue
