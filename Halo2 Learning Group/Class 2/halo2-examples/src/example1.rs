@@ -16,6 +16,7 @@ struct Acell<F: FieldExt>(AssignedCell<F, F>);
 struct FiboConfig{
     pub advice: [Column<Advice>; 3],
     pub selector: Selector,
+    pub instance: Column<Instance>
 }
 
 struct FiboChip<F: FieldExt> {
@@ -29,7 +30,8 @@ impl<F: FieldExt> FiboChip<F> {
     }
 
     fn configure(meta: &mut ConstraintSystem<F>,
-                advice: [Column<Advice>; 3]
+                advice: [Column<Advice>; 3],
+                instance: Column<Instance>,
             ) -> FiboConfig {
         let col_a = advice[0];
         let col_b = advice[1];
@@ -40,6 +42,7 @@ impl<F: FieldExt> FiboChip<F> {
         meta.enable_equality(col_a);
         meta.enable_equality(col_b);
         meta.enable_equality(col_c);
+        meta.enable_equality(instance);
 
         meta.create_gate("add", |meta: &mut VirtualCells<F>| {
 
@@ -53,6 +56,7 @@ impl<F: FieldExt> FiboChip<F> {
         FiboConfig { 
             advice:[col_a, col_b, col_c], 
             selector,
+            instance
         }
     }
 
@@ -96,6 +100,8 @@ impl<F: FieldExt> FiboChip<F> {
                 |mut region: Region<F>| {
                     self.config.selector.enable(&mut region, 0)?;
 
+
+                    //permutation trick
                     prev_b.0.copy_advice(||"a", &mut region, self.config.advice[0], 0)?;
                     prev_c.0.copy_advice(||"b", &mut region, self.config.advice[1], 0)?;
                 
@@ -115,6 +121,15 @@ impl<F: FieldExt> FiboChip<F> {
             })
 
         }
+
+        pub fn expose_public(&self,
+            mut layouter: impl Layouter<F>,
+            cell: &Acell<F>,
+            row: usize) -> Result<(), Error>{
+                layouter.constrain_instance(cell.0.cell(), 
+                self.config.instance,
+                row)
+            }
 }
 
 #[derive(Default)]
@@ -134,7 +149,8 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
         let col_a = meta.advice_column();
         let col_b = meta.advice_column();
         let col_c = meta.advice_column();
-        FiboChip::configure(meta, [col_a, col_b, col_c])
+        let instance = meta.instance_column();
+        FiboChip::configure(meta, [col_a, col_b, col_c], instance)
     }
 
     fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<F>) -> Result<(), Error> {
@@ -143,6 +159,10 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
             layouter.namespace(||"first row"),
             self.a, self.b,
         )?;
+
+        // Define the copy constraint from the instance column to our relevant advice cell
+        chip.expose_public(layouter.namespace(||"private a"), &prev_a, 0)?;
+        chip.expose_public(layouter.namespace(||"private b"), &prev_b, 1)?;
 
         for _i in 3..10{
             let c_cell = chip.assign_row(
@@ -154,6 +174,8 @@ impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
             prev_c = c_cell;
         }
 
+        chip.expose_public(layouter.namespace(||"out"), &prev_c, 2)?;
+
         Ok(())
     }
 }
@@ -164,13 +186,16 @@ fn main() {
 
     let a = Fp::from(1);
     let b = Fp::from(1);
+    let out = Fp::from(55);
 
     let circuit = MyCircuit{
         a: Some(a),
         b: Some(b),
     };
 
-    let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+    let public_input = vec![a, b, out];
+
+    let prover = MockProver::run(k, &circuit, vec![public_input.clone()]).unwrap();
 
     prover.assert_satisfied();
 

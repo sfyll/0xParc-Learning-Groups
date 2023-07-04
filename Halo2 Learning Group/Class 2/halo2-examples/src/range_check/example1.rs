@@ -7,76 +7,68 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
-/// This helper checks that the value witnessed in a given cell is within a given range.
-///
-///        value     |    q_range_check
-///       ------------------------------
-///          v       |         1
-///
+
 
 #[derive(Debug, Clone)]
-/// A range-constrained value in the circuit produced by the RangeCheckConfig.
-struct RangeConstrained<F: FieldExt, const RANGE: usize>(AssignedCell<Assigned<F>, F>);
-
-#[derive(Debug, Clone)]
-struct RangeCheckConfig<F: FieldExt, const RANGE: usize> {
+struct RangeCheckConfig<F:FieldExt, const RANGE: usize> {
     value: Column<Advice>,
     q_range_check: Selector,
-    _marker: PhantomData<F>,
+    _marker: PhantomData<F>
 }
 
+
 impl<F: FieldExt, const RANGE: usize> RangeCheckConfig<F, RANGE> {
-    pub fn configure(meta: &mut ConstraintSystem<F>, value: Column<Advice>) -> Self {
+    fn configure(
+        meta: &mut ConstraintSystem<F>,
+        value: Column<Advice>
+    ) -> Self {
         let q_range_check = meta.selector();
 
+        let config = Self {
+            q_range_check,
+            value,
+            _marker: PhantomData
+        };
+
         meta.create_gate("range check", |meta| {
-            //        value     |    q_range_check
-            //       ------------------------------
-            //          v       |         1
-
-            let q = meta.query_selector(q_range_check);
+            //when querying a selector we don't specific the rotation cause we always query at the current rotation, but advices are then indexed around the current selector location
+            let q_range_check = meta.query_selector(q_range_check);
             let value = meta.query_advice(value, Rotation::cur());
-
-            // Given a range R and a value v, returns the expression
-            // (v) * (1 - v) * (2 - v) * ... * (R - 1 - v)
-            let range_check = |range: usize, value: Expression<F>| {
-                assert!(range > 0);
-                (1..range).fold(value.clone(), |expr, i| {
+            //for a value v and a range R, check that v < R
+            //v * (1 - v) * (2 - v) * (3 - v) ... * ( R - 1 - v) = 0
+            let range_check = |range: usize, value: Expression<F>,| {
+                (0..range).fold(value.clone(), |expr, i| {
                     expr * (Expression::Constant(F::from(i as u64)) - value.clone())
                 })
             };
-
-            Constraints::with_selector(q, [("range check", range_check(RANGE, value))])
+            //multiply each constraint by its given selector
+            Constraints::with_selector(q_range_check, [("range check", range_check(RANGE, value))])
         });
 
-        Self {
-            q_range_check,
-            value,
-            _marker: PhantomData,
-        }
+        config
     }
 
-    pub fn assign(
+    fn assign(
         &self,
         mut layouter: impl Layouter<F>,
-        value: Value<Assigned<F>>,
-    ) -> Result<RangeConstrained<F, RANGE>, Error> {
-        layouter.assign_region(
-            || "Assign value",
-            |mut region| {
-                let offset = 0;
+        value: Value<Assigned<F>>
+    ) -> Result<(), Error> {
+        layouter.assign_region(||"Assign value", |mut region| {
+            let offset = 0;
+            //enable q_range_check
+            self.q_range_check.enable(&mut region, offset)?;
 
-                // Enable q_range_check
-                self.q_range_check.enable(&mut region, offset)?;
+            region.assign_advice(||"Assign value", 
+            self.value, 
+            offset, 
+            ||value)?;
 
-                // Assign value
-                region
-                    .assign_advice(|| "value", self.value, offset, || value)
-                    .map(RangeConstrained)
-            },
-        )
+            Ok(())
+
+        })
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -151,24 +143,5 @@ mod tests {
                 }])
             );
         }
-    }
-
-    #[cfg(feature = "dev-graph")]
-    #[test]
-    fn print_range_check_1() {
-        use plotters::prelude::*;
-
-        let root = BitMapBackend::new("range-check-1-layout.png", (1024, 3096)).into_drawing_area();
-        root.fill(&WHITE).unwrap();
-        let root = root
-            .titled("Range Check 1 Layout", ("sans-serif", 60))
-            .unwrap();
-
-        let circuit = MyCircuit::<Fp, 8> {
-            value: Value::unknown(),
-        };
-        halo2_proofs::dev::CircuitLayout::default()
-            .render(3, &circuit, &root)
-            .unwrap();
     }
 }
