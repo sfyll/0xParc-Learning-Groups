@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use halo2_proofs::{
+use halo2_base::{halo2_proofs::{
     arithmetic::FieldExt,
     circuit::*,
     plonk::*,
     pasta::Fp, 
     dev::MockProver, 
     poly::Rotation,
-};
+}};
 
 #[derive(Debug, Clone)]
 struct Acell<F: FieldExt>(AssignedCell<F, F>);

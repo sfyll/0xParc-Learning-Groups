@@ -12,34 +12,27 @@ use table::RangeTableConfig;
 
 //LOOKUP_RANGE > RANGE
 #[derive(Debug, Clone)]
-struct RangeCheckConfig<F:FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize> {
+struct RangeCheckConfig<F: FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize> {
     value: Column<Advice>,
     q_range_check: Selector,
     q_lookup: Selector,
     table: RangeTableConfig<F, LOOKUP_RANGE>,
-    _marker: PhantomData<F>
+    _marker: PhantomData<F>,
 }
 
-
-impl<F: FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize> RangeCheckConfig<F, RANGE, LOOKUP_RANGE> {
-    fn configure(
-        meta: &mut ConstraintSystem<F>,
-        value: Column<Advice>
-    ) -> Self {
-        let q_range_check = meta.selector();    
+impl<F: FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize>
+    RangeCheckConfig<F, RANGE, LOOKUP_RANGE>
+{
+    fn configure(meta: &mut ConstraintSystem<F>, value: Column<Advice>) -> Self {
+        let q_range_check = meta.selector();
         //toggles the lookup argument
         //selector optimisation can hand up resulting in non-binary values, which we don't want when using these as toggle values
         let q_lookup = meta.complex_selector();
 
         let table = RangeTableConfig::configure(meta);
 
-        let config = Self {
-            q_range_check,
-            value,
-            q_lookup,
-            table: table.clone(),
-            _marker: PhantomData
-        };
+        let config =
+            Self { q_range_check, value, q_lookup, table: table.clone(), _marker: PhantomData };
 
         meta.create_gate("range check", |meta| {
             //when querying a selector we don't specific the rotation cause we always query at the current rotation, but advices are then indexed around the current selector location
@@ -47,7 +40,7 @@ impl<F: FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize> RangeCheckConfi
             let value = meta.query_advice(value, Rotation::cur());
             //for a value v and a range R, check that v < R
             //v * (1 - v) * (2 - v) * (3 - v) ... * ( R - 1 - v) = 0
-            let range_check = |range: usize, value: Expression<F>,| {
+            let range_check = |range: usize, value: Expression<F>| {
                 (0..range).fold(value.clone(), |expr, i| {
                     expr * (Expression::Constant(F::from(i as u64)) - value.clone())
                 })
@@ -57,14 +50,11 @@ impl<F: FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize> RangeCheckConfi
         });
         //range check lookup
         meta.lookup(|meta| {
-            let q_lookup = meta.query_selector((q_lookup));
+            let q_lookup = meta.query_selector(q_lookup);
             let value = meta.query_advice(value, Rotation::cur());
 
-            vec![
-                (q_lookup * value, table.value)
-            ]
+            vec![(q_lookup * value, table.value)]
         });
-
 
         config
     }
@@ -73,43 +63,40 @@ impl<F: FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize> RangeCheckConfi
         &self,
         mut layouter: impl Layouter<F>,
         value: Value<Assigned<F>>,
-        range: usize
+        range: usize,
     ) -> Result<(), Error> {
         assert!(range <= LOOKUP_RANGE);
 
-        if (range < RANGE) {
-            layouter.assign_region(||"Assign value", |mut region| {
-                let offset = 0;
-                //enable q_range_check
-                self.q_range_check.enable(&mut region, offset)?;
+        if range < RANGE {
+            layouter.assign_region(
+                || "Assign value",
+                |mut region| {
+                    let offset = 0;
+                    //enable q_range_check
+                    self.q_range_check.enable(&mut region, offset)?;
 
-                region.assign_advice(||"Assign value", 
-                self.value, 
-                offset, 
-                ||value)?;
+                    region.assign_advice(|| "Assign value", self.value, offset, || value)?;
 
-                Ok(())
+                    Ok(())
+                },
+            )
+        } else {
+            layouter.assign_region(
+                || "assign value for lookup range check",
+                |mut region| {
+                    let offset = 0;
 
-            })
-        }
-        else {
-            layouter.assign_region(||"assign value for lookup range check", |mut region| {
-                let offset = 0;
+                    //enable q_range_check
+                    self.q_lookup.enable(&mut region, offset)?;
 
-                //enable q_range_check
-                self.q_lookup.enable(&mut region, offset)?;
+                    region.assign_advice(|| "Assign value", self.value, offset, || value)?;
 
-                region.assign_advice(||"Assign value", 
-                self.value, 
-                offset, 
-                ||value)?;
-
-                Ok(())
-})
+                    Ok(())
+                },
+            )
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -128,7 +115,9 @@ mod tests {
         large_value: Value<Assigned<F>>,
     }
 
-    impl<F: FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize> Circuit<F> for MyCircuit<F, RANGE, LOOKUP_RANGE> {
+    impl<F: FieldExt, const RANGE: usize, const LOOKUP_RANGE: usize> Circuit<F>
+        for MyCircuit<F, RANGE, LOOKUP_RANGE>
+    {
         type Config = RangeCheckConfig<F, RANGE, LOOKUP_RANGE>;
         type FloorPlanner = V1;
 
@@ -146,11 +135,14 @@ mod tests {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-
             config.table.load(&mut layouter)?;
 
             config.assign(layouter.namespace(|| "Assign value"), self.value, RANGE)?;
-            config.assign(layouter.namespace(|| "Assign larger value"), self.large_value, LOOKUP_RANGE)?;
+            config.assign(
+                layouter.namespace(|| "Assign larger value"),
+                self.large_value,
+                LOOKUP_RANGE,
+            )?;
 
             Ok(())
         }

@@ -7,28 +7,18 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
-
-
 #[derive(Debug, Clone)]
-struct RangeCheckConfig<F:FieldExt, const RANGE: usize> {
+struct RangeCheckConfig<F: FieldExt, const RANGE: usize> {
     value: Column<Advice>,
     q_range_check: Selector,
-    _marker: PhantomData<F>
+    _marker: PhantomData<F>,
 }
 
-
 impl<F: FieldExt, const RANGE: usize> RangeCheckConfig<F, RANGE> {
-    fn configure(
-        meta: &mut ConstraintSystem<F>,
-        value: Column<Advice>
-    ) -> Self {
+    fn configure(meta: &mut ConstraintSystem<F>, value: Column<Advice>) -> Self {
         let q_range_check = meta.selector();
 
-        let config = Self {
-            q_range_check,
-            value,
-            _marker: PhantomData
-        };
+        let config = Self { q_range_check, value, _marker: PhantomData };
 
         meta.create_gate("range check", |meta| {
             //when querying a selector we don't specific the rotation cause we always query at the current rotation, but advices are then indexed around the current selector location
@@ -36,7 +26,7 @@ impl<F: FieldExt, const RANGE: usize> RangeCheckConfig<F, RANGE> {
             let value = meta.query_advice(value, Rotation::cur());
             //for a value v and a range R, check that v < R
             //v * (1 - v) * (2 - v) * (3 - v) ... * ( R - 1 - v) = 0
-            let range_check = |range: usize, value: Expression<F>,| {
+            let range_check = |range: usize, value: Expression<F>| {
                 (0..range).fold(value.clone(), |expr, i| {
                     expr * (Expression::Constant(F::from(i as u64)) - value.clone())
                 })
@@ -51,24 +41,22 @@ impl<F: FieldExt, const RANGE: usize> RangeCheckConfig<F, RANGE> {
     fn assign(
         &self,
         mut layouter: impl Layouter<F>,
-        value: Value<Assigned<F>>
+        value: Value<Assigned<F>>,
     ) -> Result<(), Error> {
-        layouter.assign_region(||"Assign value", |mut region| {
-            let offset = 0;
-            //enable q_range_check
-            self.q_range_check.enable(&mut region, offset)?;
+        layouter.assign_region(
+            || "Assign value",
+            |mut region| {
+                let offset = 0;
+                //enable q_range_check
+                self.q_range_check.enable(&mut region, offset)?;
 
-            region.assign_advice(||"Assign value", 
-            self.value, 
-            offset, 
-            ||value)?;
+                region.assign_advice(|| "Assign value", self.value, offset, || value)?;
 
-            Ok(())
-
-        })
+                Ok(())
+            },
+        )
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -117,9 +105,7 @@ mod tests {
 
         // Successful cases
         for i in 0..RANGE {
-            let circuit = MyCircuit::<Fp, RANGE> {
-                value: Value::known(Fp::from(i as u64).into()),
-            };
+            let circuit = MyCircuit::<Fp, RANGE> { value: Value::known(Fp::from(i as u64).into()) };
 
             let prover = MockProver::run(k, &circuit, vec![]).unwrap();
             prover.assert_satisfied();
@@ -127,9 +113,8 @@ mod tests {
 
         // Out-of-range `value = 8`
         {
-            let circuit = MyCircuit::<Fp, RANGE> {
-                value: Value::known(Fp::from(RANGE as u64).into()),
-            };
+            let circuit =
+                MyCircuit::<Fp, RANGE> { value: Value::known(Fp::from(RANGE as u64).into()) };
             let prover = MockProver::run(k, &circuit, vec![]).unwrap();
             assert_eq!(
                 prover.verify(),
