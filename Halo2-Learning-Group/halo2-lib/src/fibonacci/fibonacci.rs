@@ -24,23 +24,18 @@ pub fn compute_fibonacci<F: ScalarField>(
 ) {
     let a = F::from_str_vartime(&input.a).expect("deserialize field element should not fail");
     let b = F::from_str_vartime(&input.b).expect("deserialize field element should not fail");
-    // let fibonacci_number = F::from_str_vartime(&input.fibonacci_number).expect("deserialize field element should not fail");
     let fibonacci_number = var("FIBONACCI_NUMBER")
         .unwrap_or_else(|_| panic!("fibonacci_number not set"))
         .parse()
         .unwrap();
     let out = F::from_str_vartime(&input.out).expect("deserialize field element should not fail");
 
-    // first we load a number `x` into as system, as a "witness"
     let mut a = ctx.load_witness(a);
     let mut b = ctx.load_witness(b);
 
-    // by default, all numbers in the system are private
-    // we can make it public like so:
     make_public.push(a);
     make_public.push(b);
 
-    // create a Gate chip that contains methods for basic arithmetic operations
     let gate = GateChip::<F>::default();
 
     for _row in 2..fibonacci_number {
